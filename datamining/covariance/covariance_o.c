@@ -1,0 +1,193 @@
+/**
+ * This version is stamped on May 10, 2016
+ *
+ * Contact:
+ *   Louis-Noel Pouchet <pouchet.ohio-state.edu>
+ *   Tomofumi Yuki <tomofumi.yuki.fr>
+ *
+ * Web address: http://polybench.sourceforge.net
+ */
+/* covariance.c: this file is part of PolyBench/C */
+
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+#include <math.h>
+
+/* Include polybench common header. */
+#include <polybench.h>
+
+/* Include benchmark-specific header. */
+#include "covariance.h"
+
+
+/* Array initialization. */
+static
+void init_array (int m, int n,
+		 DATA_TYPE *float_n,
+		 DATA_TYPE POLYBENCH_2D(data,N,M,n,m))
+{
+  int i, j;
+
+  *float_n = (DATA_TYPE)n;
+
+  for (i = 0; i < N; i++)
+    for (j = 0; j < M; j++)
+      data[i][j] = ((DATA_TYPE) i*j) / M;
+}
+
+
+/* DCE code. Must scan the entire live-out data.
+   Can be used also to check the correctness of the output. */
+static
+void print_array(int m,
+		 DATA_TYPE POLYBENCH_2D(cov,M,M,m,m))
+
+{
+  int i, j;
+
+  POLYBENCH_DUMP_START;
+  POLYBENCH_DUMP_BEGIN("cov");
+  for (i = 0; i < m; i++)
+    for (j = 0; j < m; j++) {
+      if ((i * m + j) % 20 == 0) fprintf (POLYBENCH_DUMP_TARGET, "\n");
+      fprintf (POLYBENCH_DUMP_TARGET, DATA_PRINTF_MODIFIER, cov[i][j]);
+    }
+  POLYBENCH_DUMP_END("cov");
+  POLYBENCH_DUMP_FINISH;
+}
+
+
+/* Main computational kernel. The whole function will be timed,
+   including the call and return. */
+static
+void kernel_covariance(int m, int n,
+		       DATA_TYPE float_n,
+		       DATA_TYPE POLYBENCH_2D(data,N,M,n,m),
+		       DATA_TYPE POLYBENCH_2D(cov,M,M,m,m),
+		       DATA_TYPE POLYBENCH_1D(mean,M,m))
+{
+  int i, j, k;
+
+#pragma scop
+  for (j = 0; j < _PB_M; j++)
+    {
+      mean[j] = SCALAR_VAL(0.0);
+      for (i = 0; i < _PB_N; i++)
+        mean[j] += data[i][j];
+      mean[j] /= float_n;
+    }
+
+  for (i = 0; i < _PB_N; i++)
+    for (j = 0; j < _PB_M; j++)
+      data[i][j] -= mean[j];
+
+  for (i = 0; i < _PB_M; i++) {
+  for (j = i; j < _PB_M; j++) {
+#if defined(SE)
+    const DATA_TYPE MEAN_TH = SCALAR_VAL(1e-3);
+    const DATA_TYPE N_TH = SCALAR_VAL(50.0); /* 可按 N 调整 */
+    int condA = (fabs(mean[i]) > MEAN_TH);     /* 简单谓词 */
+    int condB = ((j % 2) == 0);
+    int condC = (((int)(data[0][i] * 1000.0)) & 1);
+
+    if (condA) {
+      if (condB || (condC && (float_n > N_TH))) {
+        /* 热路径：完整累加 */
+        cov[i][j] = SCALAR_VAL(0.0);
+#if defined(LU) && (UNROLL > 1)
+        int kk = 0;
+        for (; kk + (UNROLL - 1) < _PB_N; kk += UNROLL) {
+          /* 示例：UNROLL==4 */
+          cov[i][j] += data[kk+0][i] * data[kk+0][j];
+          cov[i][j] += data[kk+1][i] * data[kk+1][j];
+          cov[i][j] += data[kk+2][i] * data[kk+2][j];
+          cov[i][j] += data[kk+3][i] * data[kk+3][j];
+        }
+        for (; kk < _PB_N; ++kk)
+          cov[i][j] += data[kk][i] * data[kk][j];
+#else
+        for (k = 0; k < _PB_N; k++)
+          cov[i][j] += data[k][i] * data[k][j];
+#endif
+      } else {
+        /* condA true but subguard false → 减少计算（步长=2） */
+        cov[i][j] = SCALAR_VAL(0.0);
+        for (k = 0; k < _PB_N; k += 2)
+          cov[i][j] += data[k][i] * data[k][j];
+        cov[i][j] *= SCALAR_VAL(2.0); /* 近似修正 */
+      }
+    } else {
+      if (condC && (float_n > N_TH)) {
+        /* 另一条热路径：完整累加 */
+        cov[i][j] = SCALAR_VAL(0.0);
+        for (k = 0; k < _PB_N; k++)
+          cov[i][j] += data[k][i] * data[k][j];
+      } else {
+        /* 冷路径：轻量近似 */
+        cov[i][j] = SCALAR_VAL(0.0);
+        for (k = 0; k < _PB_N; k += 2)
+          cov[i][j] += data[k][i] * data[k][j];
+        cov[i][j] *= SCALAR_VAL(2.0);
+      }
+    }
+
+    cov[i][j] /= (float_n - SCALAR_VAL(1.0));
+    cov[j][i] = cov[i][j];
+
+#else
+    /* baseline */
+    cov[i][j] = SCALAR_VAL(0.0);
+    for (k = 0; k < _PB_N; k++)
+      cov[i][j] += data[k][i] * data[k][j];
+    cov[i][j] /= (float_n - SCALAR_VAL(1.0));
+    cov[j][i] = cov[i][j];
+#endif
+  }
+}
+
+#pragma endscop
+
+}
+
+
+int main(int argc, char** argv)
+{
+  /* Retrieve problem size. */
+  int n = N;
+  int m = M;
+
+  /* Variable declaration/allocation. */
+  DATA_TYPE float_n;
+  POLYBENCH_2D_ARRAY_DECL(data,DATA_TYPE,N,M,n,m);
+  POLYBENCH_2D_ARRAY_DECL(cov,DATA_TYPE,M,M,m,m);
+  POLYBENCH_1D_ARRAY_DECL(mean,DATA_TYPE,M,m);
+
+
+  /* Initialize array(s). */
+  init_array (m, n, &float_n, POLYBENCH_ARRAY(data));
+
+  /* Start timer. */
+  polybench_start_instruments;
+
+  /* Run kernel. */
+  kernel_covariance (m, n, float_n,
+		     POLYBENCH_ARRAY(data),
+		     POLYBENCH_ARRAY(cov),
+		     POLYBENCH_ARRAY(mean));
+
+  /* Stop and print timer. */
+  polybench_stop_instruments;
+  polybench_print_instruments;
+
+  /* Prevent dead-code elimination. All live-out data must be printed
+     by the function call in argument. */
+  polybench_prevent_dce(print_array(m, POLYBENCH_ARRAY(cov)));
+
+  /* Be clean. */
+  POLYBENCH_FREE_ARRAY(data);
+  POLYBENCH_FREE_ARRAY(cov);
+  POLYBENCH_FREE_ARRAY(mean);
+
+  return 0;
+}

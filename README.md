@@ -28,6 +28,7 @@ python3 HEgcov_to_profile.py test.c.gcov profile.json
 
 ### HEgcov_to_profile.py ###
 
+```
 import sys
 import re
 import json
@@ -91,3 +92,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+```

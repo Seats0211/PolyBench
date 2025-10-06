@@ -19,8 +19,7 @@ SE+LU:  gcc -O2 -DSE -DUNROLL=4 cholesky_o.c -I ../../../utilities ../../../util
 ## Source code ---> IR ##
 
 e.g.:
-(gcc -fdump-tree-gimple test.c) ** Direct GCC to print GIMPLE **
-
+(gcc -fdump-tree-gimple test.c) **Direct GCC to print GIMPLE** **—Optional—**
 gcc -fprofile-arcs -ftest-coverage -o test test.c
 ./test
 gcov ./test.c

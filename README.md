@@ -10,5 +10,7 @@ Apply Shannon expansion to the inner accumulation loop of the target computation
 
 ### Compile and run Baseline/LU/SE+LU (remember to use -DPOLYBENCH_TIME). ###
 e.g. Baseline: gcc -O2 cholesky.c -I ../../../utilities ../../../utilities/polybench.c -DPOLYBENCH_TIME -lm
+
 LU: gcc -O2 -DUNROLL=4 cholesky_o.c -I ../../../utilities ../../../utilities/polybench.c -DPOLYBENCH_TIME -lm
+
 SE+LU:  gcc -O2 -DSE -DUNROLL=4 cholesky_o.c -I ../../../utilities ../../../utilities/polybench.c -DPOLYBENCH_TIME -lm

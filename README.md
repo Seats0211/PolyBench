@@ -112,3 +112,5 @@ This is the branch entropy information we finally get, as shown below.
     "entropy": 0.9709505944546686,
     "high_entropy": true
   }
+
+

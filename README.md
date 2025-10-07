@@ -97,3 +97,18 @@ if __name__ == "__main__":
 
 
 ```
+
+This is the branch entropy information we finally get, as shown below.
+
+"test.c.gcov:6:branch": {
+    "true_prob": 0.91,
+    "false_prob": 0.09,
+    "entropy": 0.4364698170641028,
+    "high_entropy": false
+  },
+  "test.c.gcov:8:branch": {
+    "true_prob": 0.4,
+    "false_prob": 0.6,
+    "entropy": 0.9709505944546686,
+    "high_entropy": true
+  }

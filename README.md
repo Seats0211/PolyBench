@@ -37,7 +37,7 @@ import re
 import json
 import math
 
-ENTROPY_THRESHOLD = 0.8  # 阈值
+ENTROPY_THRESHOLD = 0.8
 
 def entropy(p):
     """Compute binary entropy in bits"""
@@ -52,19 +52,18 @@ def parse_gcov(gcov_file):
 
     with open(gcov_file, "r") as f:
         for line in f:
-            # 匹配源码行号，例如： "      50:    8:            if ( i % 3 == 0 )"
+            
             m = re.match(r"\s*\d+:\s+(\d+):", line)
             if m:
                 current_line = m.group(1)
                 branch_probs = []  # reset for this line
                 continue
 
-            # 匹配分支覆盖信息，例如： "branch  0 taken 40%"
             m = re.search(r"branch\s+\d+\s+taken\s+(\d+)%", line)
             if m and current_line:
                 branch_probs.append(int(m.group(1)))
 
-                # 如果收集到两个分支概率，存储
+                
                 if len(branch_probs) == 2:
                     p_true = branch_probs[0] / 100.0
                     p_false = branch_probs[1] / 100.0

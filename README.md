@@ -20,8 +20,11 @@ SE+LU:  gcc -O2 -DSE -DUNROLL=4 cholesky_o.c -I ../../../utilities ../../../util
 
 e.g.:
 (gcc -fdump-tree-gimple test.c) **Direct GCC to print GIMPLE** **—Optional—**
+
 gcc -fprofile-arcs -ftest-coverage -o test test.c
+
 ./test
+
 gcov ./test.c
 
 python3 HEgcov_to_profile.py test.c.gcov profile.json

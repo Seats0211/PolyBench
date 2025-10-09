@@ -86,19 +86,18 @@ void kernel_covariance(int m, int n,
   for (j = i; j < _PB_M; j++) {
 #if defined(SE)
     const DATA_TYPE MEAN_TH = SCALAR_VAL(1e-3);
-    const DATA_TYPE N_TH = SCALAR_VAL(50.0); /* 可按 N 调整 */
-    int condA = (fabs(mean[i]) > MEAN_TH);     /* 简单谓词 */
+    const DATA_TYPE N_TH = SCALAR_VAL(50.0);
+    int condA = (fabs(mean[i]) > MEAN_TH);
     int condB = ((j % 2) == 0);
     int condC = (((int)(data[0][i] * 1000.0)) & 1);
 
     if (condA) {
       if (condB || (condC && (float_n > N_TH))) {
-        /* 热路径：完整累加 */
+        /* hot path */
         cov[i][j] = SCALAR_VAL(0.0);
 #if defined(LU) && (UNROLL > 1)
         int kk = 0;
         for (; kk + (UNROLL - 1) < _PB_N; kk += UNROLL) {
-          /* 示例：UNROLL==4 */
           cov[i][j] += data[kk+0][i] * data[kk+0][j];
           cov[i][j] += data[kk+1][i] * data[kk+1][j];
           cov[i][j] += data[kk+2][i] * data[kk+2][j];
@@ -111,20 +110,19 @@ void kernel_covariance(int m, int n,
           cov[i][j] += data[k][i] * data[k][j];
 #endif
       } else {
-        /* condA true but subguard false → 减少计算（步长=2） */
+        /* condA true but subguard false */
         cov[i][j] = SCALAR_VAL(0.0);
         for (k = 0; k < _PB_N; k += 2)
           cov[i][j] += data[k][i] * data[k][j];
-        cov[i][j] *= SCALAR_VAL(2.0); /* 近似修正 */
+        cov[i][j] *= SCALAR_VAL(2.0);
       }
     } else {
       if (condC && (float_n > N_TH)) {
-        /* 另一条热路径：完整累加 */
         cov[i][j] = SCALAR_VAL(0.0);
         for (k = 0; k < _PB_N; k++)
           cov[i][j] += data[k][i] * data[k][j];
       } else {
-        /* 冷路径：轻量近似 */
+        /* cold path */
         cov[i][j] = SCALAR_VAL(0.0);
         for (k = 0; k < _PB_N; k += 2)
           cov[i][j] += data[k][i] * data[k][j];
@@ -191,3 +189,4 @@ int main(int argc, char** argv)
 
   return 0;
 }
+

@@ -98,12 +98,13 @@ void kernel_gemver(int n,
 
 #pragma scop
 
-  /* Strategy B tuning parameters (可调): */
-  const DATA_TYPE U1_TH = SCALAR_VAL(1e-6); /* 判断 u1/u2 是否“显著”的阈值 */
-  const int SAMPLE_STEP = 2;                /* 冷路径采样步长（每 SAMPLE_STEP 个取一次） */
+  /* Strategy B tuning parameters: */
+  const DATA_TYPE U1_TH = SCALAR_VAL(1e-6);
+  const int SAMPLE_STEP = 2;
 
   /* 1) Rank-1 updates: A[i][j] += u1[i]*v1[j] + u2[i]*v2[j]
-     这个更新通常是密集的，分支较少——我们保留精确更新，但提供可选手工展开(LU) */
+     This update is usually dense with few branches - 
+	 we retain the exact update but provide optional manual unrolling (LU) */
 #if defined(SE)
   /* We keep this exact but allow optional unrolling to show LU effect */
 #endif
@@ -130,18 +131,17 @@ void kernel_gemver(int n,
       A[i][j] = A[i][j] + u1[i] * v1[j] + u2[i] * v2[j];
 #endif
 
-  /* 2) x := x + beta * A^T * y  -- 这是一个“列/行”归约，适合做分支拆分与采样近似 */
 #if defined(SE)
-  /* composite guard: condA 判断行向量 u1[i]、u2[i] 是否“显著”用于分裂（举例） */
+  
   const DATA_TYPE U_TH = SCALAR_VAL(1e-3);
 #endif
 
   for (i = 0; i < _PB_N; ++i) {
 #if defined(SE)
-    /* 选择一个便宜的子谓词：基于 u1[i] 或 x[i] 的大小 */
+    
     int condA = (fabs(u1[i]) > U_TH || fabs(u2[i]) > U_TH);
     if (condA) {
-      /* 热路径：精确全和 */
+      /* hot path */
 #if defined(LU) && (UNROLL > 1)
       DATA_TYPE acc = SCALAR_VAL(0.0);
       int jj = 0;
@@ -161,14 +161,14 @@ void kernel_gemver(int n,
       for (j = 0; j < _PB_N; ++j) x[i] += beta * A[j][i] * y[j];
 #endif
     } else {
-      /* 冷路径：采样（每 SAMPLE_STEP 个累加一次），然后缩放近似全和 */
+      /* cold path */
       DATA_TYPE acc = SCALAR_VAL(0.0);
       int cnt = 0;
       for (j = 0; j < _PB_N; j += SAMPLE_STEP) {
         acc += beta * A[j][i] * y[j];
         cnt++;
       }
-      /* 线性缩放得到近似全和（假设分布近似均匀） */
+    
       x[i] += acc * (DATA_TYPE)SAMPLE_STEP;
     }
 #else
@@ -181,10 +181,9 @@ void kernel_gemver(int n,
   for (i = 0; i < _PB_N; ++i)
     x[i] = x[i] + z[i];
 
-  /* 4) w := w + alpha * A * x  -- 同样是缩放/归约，可对 j 归约应用策略 B */
   for (i = 0; i < _PB_N; ++i) {
 #if defined(SE)
-    int condA = (fabs(x[i]) > U_TH); /* 以 x[i] 的规模决定是否需要精确处理 */
+    int condA = (fabs(x[i]) > U_TH);
     if (condA) {
 #if defined(LU) && (UNROLL > 1)
       DATA_TYPE acc = SCALAR_VAL(0.0);
@@ -205,7 +204,7 @@ void kernel_gemver(int n,
       for (j = 0; j < _PB_N; ++j) w[i] += alpha * A[i][j] * x[j];
 #endif
     } else {
-      /* 冷路径：采样并缩放 */
+      /* cold path */
       DATA_TYPE acc = SCALAR_VAL(0.0);
       int cnt = 0;
       for (j = 0; j < _PB_N; j += SAMPLE_STEP) {
@@ -292,3 +291,4 @@ int main(int argc, char** argv)
 
   return 0;
 }
+

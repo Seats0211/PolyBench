@@ -80,18 +80,15 @@ void kernel_trmm(int m, int n,
 #if defined(SE)
       /* Tunable predicates / thresholds */
       const DATA_TYPE ALPHA_TH = SCALAR_VAL(1e-3);
-      const DATA_TYPE N_TH     = SCALAR_VAL(64.0); /* 可按问题规模调节 */
+      const DATA_TYPE N_TH     = SCALAR_VAL(64.0);
 
       int condA = (fabs(alpha) > ALPHA_TH);           /* cheap predicate */
       int condB = ((i + j) % 2 == 0);                 /* structural predicate */
       int condC = (((int)(A[i][0] * 1000.0)) & 1);    /* pseudo-random bit */
 
-      /* 这里我们采用 SE 风格：根据 condA/condB/condC 分出热/冷路径
-         热路径做完整累加（k = i+1 .. M-1）
-         冷路径做步长采样（k += 2）并乘以 2 做粗略补偿 */
       if (condA) {
         if (condB || (condC && (m > N_TH))) {
-          /* 热路径：完整累加，支持可选 LU 展开 */
+          /* hot path */
           DATA_TYPE acc = B[i][j];
 #if defined(LU) && (UNROLL > 1)
           int kk = i + 1;
@@ -113,17 +110,17 @@ void kernel_trmm(int m, int n,
 #endif
           B[i][j] = alpha * acc;
         } else {
-          /* condA true but subguard false -> 近似路径：采样 (k += 2) 并放大 */
+          
           DATA_TYPE acc = B[i][j];
           for (k = i + 1; k < _PB_M; k += 2)
             acc += A[k][i] * B[k][j];
-          acc *= SCALAR_VAL(2.0); /* 简单放大补偿 */
+          acc *= SCALAR_VAL(2.0);
           B[i][j] = alpha * acc;
         }
       } else {
-        /* condA == false: 另一条分支组 */
+        
         if (condC && (m > N_TH)) {
-          /* alternate hot: 完整累加 */
+          /* alternate hot */
           DATA_TYPE acc = B[i][j];
 #if defined(LU) && (UNROLL > 1)
           int kk = i + 1;
@@ -145,7 +142,7 @@ void kernel_trmm(int m, int n,
 #endif
           B[i][j] = alpha * acc;
         } else {
-          /* 冷路径：近似 */
+          /* cold path */
           DATA_TYPE acc = B[i][j];
           for (k = i + 1; k < _PB_M; k += 2)
             acc += A[k][i] * B[k][j];
@@ -154,7 +151,7 @@ void kernel_trmm(int m, int n,
         }
       }
 #else
-      /* baseline: 精确累加 */
+      /* baseline */
       DATA_TYPE acc = B[i][j];
       for (k = i + 1; k < _PB_M; k++)
         acc += A[k][i] * B[k][j];
@@ -201,3 +198,4 @@ int main(int argc, char** argv)
 
   return 0;
 }
+

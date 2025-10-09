@@ -87,7 +87,7 @@ void kernel_symm(int m, int n,
 #if defined(SE)
       /* ---------- Shannon-style predicates (tunable) ---------- */
       const DATA_TYPE ALPHA_TH = SCALAR_VAL(1e-3);
-      const DATA_TYPE N_TH     = SCALAR_VAL(64.0); /* 可按问题规模调整 */
+      const DATA_TYPE N_TH     = SCALAR_VAL(64.0);
 
       int condA = (fabs(alpha) > ALPHA_TH);        /* cheap predicate */
       int condB = ((i + j) % 2 == 0);              /* cheap structural */
@@ -95,15 +95,15 @@ void kernel_symm(int m, int n,
 
       if (condA) {
         if (condB || (condC && (m > N_TH))) {
-          /* === 热路径：完整计算（精确） === */
+          /* hot path */
           temp2 = SCALAR_VAL(0.0);
 
 #if defined(LU) && (UNROLL > 1)
-          /* 手动对 k 循环展开，示例 UNROLL == 4 */
+          /* UNROLL == 4 */
           int kk = 0;
           for (; kk + (UNROLL - 1) < i; kk += UNROLL) {
 #if UNROLL == 4
-            /* 对每个 kk+u 做 C[k][j] += alpha * B[i][j] * A[i][k] 以及 temp2 += B[k][j] * A[i][k]; */
+            
             /* k = kk+0 */
             C[kk+0][j] += alpha * B[i][j] * A[i][kk+0];
             temp2     += B[kk+0][j] * A[i][kk+0];
@@ -129,34 +129,34 @@ void kernel_symm(int m, int n,
             temp2     += B[kk][j] * A[i][kk];
           }
 #else
-          /* 无展开的精确 k 循环 */
+          /* UNROLL == 1 */
           temp2 = SCALAR_VAL(0.0);
           for (k = 0; k < i; k++) {
             C[k][j] += alpha * B[i][j] * A[i][k];
             temp2     += B[k][j] * A[i][k];
           }
 #endif
-          /* 主对角项与写回 */
+          
           C[i][j] = beta * C[i][j] + alpha * B[i][j] * A[i][i] + alpha * temp2;
         } else {
-          /* === condA true but subguard false：近似路径（采样 step=2 并放大） === */
+          
           temp2 = SCALAR_VAL(0.0);
-          /* 对被更新的其他行 C[k][j] 也做相同的采样更新并放大（近似） */
+          
           for (k = 0; k < i; k += 2) {
             C[k][j] += alpha * B[i][j] * A[i][k];
             temp2   += B[k][j] * A[i][k];
           }
-          /* 粗略补偿：放大采样结果 */
+          
           temp2 *= SCALAR_VAL(2.0);
-          /* 对于 C[k][j] 的放大，我们同样放大已做过更新的位置 */
+          
           for (k = 0; k < i; k += 2) {
             C[k][j] *= SCALAR_VAL(2.0);
           }
-          /* 写回 i 行 */
+          
           C[i][j] = beta * C[i][j] + alpha * B[i][j] * A[i][i] + alpha * temp2;
         }
       } else {
-        /* condA == false: 另一组分支 */
+        
         if (condC && (m > N_TH)) {
           /* alternate hot path: full precise compute */
           temp2 = SCALAR_VAL(0.0);
@@ -207,7 +207,7 @@ void kernel_symm(int m, int n,
         }
       }
 #else
-      /* ---------- baseline 原始实现 ---------- */
+      /* ---------- baseline ---------- */
       temp2 = SCALAR_VAL(0.0);
       for (k = 0; k < i; k++) {
         C[k][j] += alpha * B[i][j] * A[i][k];
@@ -266,3 +266,4 @@ int main(int argc, char** argv)
 
   return 0;
 }
+

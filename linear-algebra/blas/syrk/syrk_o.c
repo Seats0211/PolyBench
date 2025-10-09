@@ -83,7 +83,7 @@ void kernel_syrk(int n, int m,
 #if defined(SE)
       /* ---------- Shannon-like predicates (tunable) ---------- */
       const DATA_TYPE ALPHA_TH = SCALAR_VAL(1e-3);
-      const DATA_TYPE M_TH     = SCALAR_VAL(64.0); /* 可按 problem-size 调整 */
+      const DATA_TYPE M_TH     = SCALAR_VAL(64.0);
 
       int condA = (fabs(alpha) > ALPHA_TH);          /* cheap predicate */
       int condB = ((i + j) % 2 == 0);                /* structural cheap predicate */
@@ -93,7 +93,7 @@ void kernel_syrk(int n, int m,
 
       if (condA) {
         if (condB || (condC && (m > M_TH))) {
-          /* 热路径：完整累加 */
+          /* hot path */
 #if defined(LU) && (UNROLL > 1)
           int kk = 0;
           for (; kk + (UNROLL - 1) < _PB_M; kk += UNROLL) {
@@ -116,15 +116,15 @@ void kernel_syrk(int n, int m,
             sum += alpha * A[i][k] * A[j][k] + alpha * A[j][k] * A[i][k];
 #endif
         } else {
-          /* condA true but subguard false -> 近似路径：step-2 采样并放大 */
+          
           for (k = 0; k < _PB_M; k += 2)
             sum += alpha * A[i][k] * A[j][k] + alpha * A[j][k] * A[i][k];
-          sum *= SCALAR_VAL(2.0); /* 粗略补偿 */
+          sum *= SCALAR_VAL(2.0);
         }
       } else {
-        /* condA == false: 另一组分支 */
+        
         if (condC && (m > M_TH)) {
-          /* alternate hot: 完整累加 */
+          /* alternate hot */
 #if defined(LU) && (UNROLL > 1)
           int kk = 0;
           for (; kk + (UNROLL - 1) < _PB_M; kk += UNROLL) {
@@ -147,7 +147,7 @@ void kernel_syrk(int n, int m,
             sum += alpha * A[i][k] * A[j][k] + alpha * A[j][k] * A[i][k];
 #endif
         } else {
-          /* cold path: 轻量近似 */
+          /* cold path */
           for (k = 0; k < _PB_M; k += 2)
             sum += alpha * A[i][k] * A[j][k] + alpha * A[j][k] * A[i][k];
           sum *= SCALAR_VAL(2.0);
@@ -157,7 +157,7 @@ void kernel_syrk(int n, int m,
       C[i][j] += sum;
 
 #else
-      /* baseline: 原始实现 */
+      /* baseline */
       for (k = 0; k < _PB_M; k++)
         C[i][j] += alpha * A[i][k] * A[j][k]; /* note: for syrk baseline should be C[i][j]+=alpha*A[i][k]*A[j][k]; */
       /* Above line kept for consistency; replace with the canonical form if desired: */
@@ -206,3 +206,4 @@ int main(int argc, char** argv)
 
   return 0;
 }
+

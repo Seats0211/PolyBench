@@ -86,7 +86,7 @@ void kernel_3mm(int ni, int nj, int nk, int nl, int nm,
     for (j = 0; j < _PB_NJ; j++) {
 #if defined(SE)
       const DATA_TYPE TH1 = SCALAR_VAL(1e-3);
-      const DATA_TYPE KTH = SCALAR_VAL(64.0); /* 可根据 problem size 调整 */
+      const DATA_TYPE KTH = SCALAR_VAL(64.0);
       int condA = (fabs(A[i][0]) > TH1);           /* cheap predicate */
       int condB = ((i + j) % 2 == 0);
       int condC = (((int)(B[0][j] * 1000.0)) & 1);
@@ -94,7 +94,7 @@ void kernel_3mm(int ni, int nj, int nk, int nl, int nm,
       DATA_TYPE accE = SCALAR_VAL(0.0);
       if (condA) {
         if (condB || (condC && (nk > KTH))) {
-          /* 热路径：完整累加（支持 LU 展开） */
+          /* hot path */
 #if defined(LU) && (UNROLL > 1)
           int kk = 0;
           for (; kk + (UNROLL - 1) < _PB_NK; kk += UNROLL) {
@@ -113,13 +113,13 @@ void kernel_3mm(int ni, int nj, int nk, int nl, int nm,
           for (k = 0; k < _PB_NK; ++k) accE += A[i][k] * B[k][j];
 #endif
         } else {
-          /* condA true but subguard false -> 近似路径：k += 2 采样并放大 */
+          
           for (k = 0; k < _PB_NK; k += 2) accE += A[i][k] * B[k][j];
           accE *= SCALAR_VAL(2.0);
         }
       } else {
         if (condC && (nk > KTH)) {
-          /* 另一条热路径：完整 */
+          
 #if defined(LU) && (UNROLL > 1)
           int kk = 0;
           for (; kk + (UNROLL - 1) < _PB_NK; kk += UNROLL) {
@@ -138,7 +138,7 @@ void kernel_3mm(int ni, int nj, int nk, int nl, int nm,
           for (k = 0; k < _PB_NK; ++k) accE += A[i][k] * B[k][j];
 #endif
         } else {
-          /* 冷路径：采样近似 */
+          /* cold path */
           for (k = 0; k < _PB_NK; k += 2) accE += A[i][k] * B[k][j];
           accE *= SCALAR_VAL(2.0);
         }
@@ -351,3 +351,4 @@ int main(int argc, char** argv)
 
   return 0;
 }
+

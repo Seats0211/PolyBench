@@ -65,18 +65,18 @@ void kernel_seidel_2d(int tsteps,
   int t, i, j;
 
 #pragma scop
-  /* Strategy B tuning parameters (可调节用于实验) */
-  const int SAMPLE_LEN_TH = 512; /* 若网格尺寸 > 此阈值则启用采样近似 */
-  const int SAMPLE_STEP = 2;     /* 采样步长（checkerboard 风格） */
+  
+  const int SAMPLE_LEN_TH = 512;
+  const int SAMPLE_STEP = 2;
 
   for (t = 0; t <= _PB_TSTEPS - 1; t++) {
 #if defined(SE)
     int use_sampling = (_PB_N > SAMPLE_LEN_TH);
 
     if (!use_sampling) {
-      /* 小规模或禁用采样：完全精确（baseline） */
+      
   #if defined(LU) && (UNROLL > 1)
-      /* 以 i 方向做 UNROLL 示例（行块展开以提升数据局部性） */
+      
       int ii = 1;
       for (; ii + (UNROLL - 1) < _PB_N - 1; ii += UNROLL) {
         for (j = 1; j <= _PB_N - 2; ++j) {
@@ -116,9 +116,7 @@ void kernel_seidel_2d(int tsteps,
                    + A[i+1][j-1] + A[i+1][j] + A[i+1][j+1]) / SCALAR_VAL(9.0);
   #endif
     } else {
-      /* 大规模：启用采样 + 插值（Shannon-style 拆分） */
-      /* 采样规则示例（checkerboard）：condHot = ((i+j) % SAMPLE_STEP == 0) 为热路径 */
-      /* 1) 首先对热位置做精确更新 */
+      
       for (i = 1; i <= _PB_N - 2; ++i) {
         for (j = 1; j <= _PB_N - 2; ++j) {
           int condHot = (((i + j) % SAMPLE_STEP) == 0);
@@ -127,19 +125,19 @@ void kernel_seidel_2d(int tsteps,
                      + A[i  ][j-1] + A[i  ][j] + A[i  ][j+1]
                      + A[i+1][j-1] + A[i+1][j] + A[i+1][j+1]) / SCALAR_VAL(9.0);
           } else {
-            /* 冷位置先写占位值，后做插值 */
+            
             A[i][j] = SCALAR_VAL(0.0);
           }
         }
       }
 
-      /* 2) 插值补齐冷位置：优先使用 8-邻域中已计算的热点做加权/平均 */
+      
       for (i = 1; i <= _PB_N - 2; ++i) {
         for (j = 1; j <= _PB_N - 2; ++j) {
           if (A[i][j] == SCALAR_VAL(0.0)) {
             DATA_TYPE s = SCALAR_VAL(0.0);
             int cnt = 0;
-            /* 遍历 8 邻域，若邻域位置为热点（已被计算），则加入平均 */
+            
             int ii, jj;
             for (ii = i-1; ii <= i+1; ++ii) {
               for (jj = j-1; jj <= j+1; ++jj) {
@@ -153,7 +151,7 @@ void kernel_seidel_2d(int tsteps,
             if (cnt > 0) {
               A[i][j] = s / (DATA_TYPE)cnt;
             } else {
-              /* 若邻域没有可用热点，退回到本地 stencil 近似 */
+              
               A[i][j] = (A[i-1][j-1] + A[i-1][j] + A[i-1][j+1]
                        + A[i  ][j-1] + A[i  ][j] + A[i  ][j+1]
                        + A[i+1][j-1] + A[i+1][j] + A[i+1][j+1]) / SCALAR_VAL(9.0);
@@ -210,3 +208,4 @@ int main(int argc, char** argv)
 
   return 0;
 }
+

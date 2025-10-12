@@ -1,25 +1,3 @@
-/*
- * Modified gemm.c implementing Strategy B:
- *  - Shannon-style split (hot path exact compute when operands are "large"),
- *  - cold-path sampling approximation (stochastic sampling + scaling),
- *  - optional loop unroll (UNROLL_FACTOR)
- *
- * Controls (compile-time macros):
- *  - ENABLE_STRATEGY_B (define to enable Strategy B code paths)
- *  - ENABLE_SAMPLING (define to enable cold-path sampling; otherwise cold path is skipped)
- *  - SAMPLE_RATE (integer >=1, default 8). Cold path computes 1/SAMPLE_RATE of cold updates and scales them by SAMPLE_RATE.
- *  - EPS (threshold for treating a value as "hot", default 1e-12)
- *  - ENABLE_UNROLL (define to enable inner-j loop unrolling)
- *  - UNROLL_FACTOR (integer, default 4)
- *
- * Notes:
- *  - To keep deterministic cheap RNG for sampling we use a simple xorshift32 seeded from constants.
- *  - This adaptation keeps the original PolyBench harness untouched except kernel_gemm.
- *
- * Build example:
- *   gcc -O3 -DENABLE_STRATEGY_B -DENABLE_SAMPLING -DSAMPLE_RATE=8 -DENABLE_UNROLL -DUNROLL_FACTOR=4 gemm_strategy_b.c -I. -I../../utilities -l... 
- */
-
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
@@ -370,3 +348,4 @@ int main(int argc, char** argv)
 
   return 0;
 }
+

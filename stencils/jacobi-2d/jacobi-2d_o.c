@@ -59,7 +59,6 @@ void print_array(int n,
 }
 
 
-/* Main computational kernel with Strategy B */
 static
 void kernel_jacobi_2d(int tsteps,
                 int n,
@@ -69,14 +68,14 @@ void kernel_jacobi_2d(int tsteps,
   int t, i, j;
 
 #pragma scop
-  /* Tuning params for Strategy B */
+  
   const int SAMPLE_LEN_TH = 512; /* enable sampling for large problems */
   const int SAMPLE_STEP = 2;     /* checkerboard sampling stride for cold paths */
   const int UNROLL = 4;          /* unroll factor for hot paths */
 
   for (t = 0; t < _PB_TSTEPS; t++)
     {
-      /* Update B from A: Strategy B application */
+      
 #if defined(SE)
       int use_sampling = (_PB_N > SAMPLE_LEN_TH);
 
@@ -233,4 +232,5 @@ int main(int argc, char** argv)
   POLYBENCH_FREE_ARRAY(B);
 
   return 0;
+
 }

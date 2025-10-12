@@ -1,8 +1,18 @@
+/**
+ * This version is stamped on May 10, 2016
+ *
+ * Contact:
+ *   Louis-Noel Pouchet <pouchet.ohio-state.edu>
+ *   Tomofumi Yuki <tomofumi.yuki.fr>
+ *
+ * Web address: http://polybench.sourceforge.net
+ */
+/* gemm.c: this file is part of PolyBench/C */
+
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
 #include <math.h>
-#include <stdint.h>
 
 /* Include polybench common header. */
 #include <polybench.h>
@@ -10,26 +20,6 @@
 /* Include benchmark-specific header. */
 #include "gemm.h"
 
-/* Default tunables */
-#ifndef SAMPLE_RATE
-#define SAMPLE_RATE 8
-#endif
-#ifndef EPS
-#define EPS 1e-12
-#endif
-#ifndef UNROLL_FACTOR
-#define UNROLL_FACTOR 4
-#endif
-
-/* Simple deterministic xorshift32 for lightweight sampling decisions */
-static inline uint32_t xorshift32(uint32_t *state) {
-    uint32_t x = *state;
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    *state = x;
-    return x;
-}
 
 /* Array initialization. */
 static
@@ -78,17 +68,6 @@ void print_array(int ni, int nj,
 
 /* Main computational kernel. The whole function will be timed,
    including the call and return. */
-/* helper inline abs for DATA_TYPE (avoids lib call) */
-static inline DATA_TYPE abs_dt(DATA_TYPE x) { return x < (DATA_TYPE)0 ? -x : x; }
-
-/* detect pow2 SAMPLE_RATE at compile time if SAMPLE_RATE is a compile-time constant */
-#if defined(SAMPLE_RATE) && ( (SAMPLE_RATE & (SAMPLE_RATE - 1)) == 0 )
-  #define SAMPLE_POW2 1
-  #define SAMPLE_MASK (SAMPLE_RATE - 1)
-#else
-  #define SAMPLE_POW2 0
-#endif
-
 static
 void kernel_gemm(int ni, int nj, int nk,
          DATA_TYPE alpha,
@@ -99,207 +78,71 @@ void kernel_gemm(int ni, int nj, int nk,
 {
   int i, j, k;
 
-#ifdef ENABLE_BHOT_PRECOMPUTE
-  /* Precompute B-hot mask once: Bhot[k*nj + j] == 1 if |B[k][j]| > EPS */
-  unsigned char *Bhot = (unsigned char*) malloc((size_t) _PB_NK * (size_t) _PB_NJ);
-  if (Bhot != NULL) {
-    for (k = 0; k < _PB_NK; ++k) {
-      const DATA_TYPE *brow = B[k];
-      size_t base = (size_t)k * (size_t)_PB_NJ;
-      for (j = 0; j < _PB_NJ; ++j)
-        Bhot[base + (size_t)j] = (abs_dt(brow[j]) > (DATA_TYPE)EPS) ? 1u : 0u;
-    }
-  } else {
-    /* allocation failed: disable precompute quietly */
-    Bhot = NULL;
-  }
-#endif
-
+//BLAS PARAMS
+//TRANSA = 'N'
+//TRANSB = 'N'
+// => Form C := alpha*A*B + beta*C,
+//A is NIxNK
+//B is NKxNJ
+//C is NIxNJ
 #pragma scop
   for (i = 0; i < _PB_NI; i++) {
-    /* pointers to row i to help alias analysis / vectorization */
-    DATA_TYPE * restrict c_row = C[i];
-    const DATA_TYPE * restrict a_row = A[i];
+    for (j = 0; j < _PB_NJ; j++)
+    C[i][j] *= beta;
+    for (k = 0; k < _PB_NK; k++) {
+#if defined(SE)
+  const DATA_TYPE A_TH = SCALAR_VAL(1e-3);
+  const DATA_TYPE NJ_TH = SCALAR_VAL(50.0); /* tune per problem size */
+  int condA = (fabs(A[i][k]) > A_TH);      /* cheap predicate */
+  int condB = ((k % 2) == 0);
+  int condC = (((int)(B[k][0]*1000.0)) & 1);
 
-    /* scale C row by beta if needed (special-case beta==1 skip) */
-    if (! (abs_dt(beta - (DATA_TYPE)1.0) <= (DATA_TYPE)EPS) ) {
-      for (j = 0; j < _PB_NJ; ++j)
-        c_row[j] *= beta;
+  if (condA) {
+    if (condB || (condC && (nj > NJ_TH))) {
+      /* hot: full accumulation */
+      #if defined(LU) && (UNROLL > 1)
+      /* optional manual unrolling here */
+      int jj = 0;
+      for (; jj + (UNROLL - 1) < _PB_NJ; jj += UNROLL) {
+        /* unrolled body (example for UNROLL==4) */
+        C[i][jj+0] += alpha * A[i][k] * B[k][jj+0];
+        C[i][jj+1] += alpha * A[i][k] * B[k][jj+1];
+        C[i][jj+2] += alpha * A[i][k] * B[k][jj+2];
+        C[i][jj+3] += alpha * A[i][k] * B[k][jj+3];
+      }
+      for (; jj < _PB_NJ; ++jj) C[i][jj] += alpha * A[i][k] * B[k][jj];
+      #else
+      for (j = 0; j < _PB_NJ; j++)
+      C[i][j] += alpha * A[i][k] * B[k][j];
+      #endif
+    } else {
+      /* condA true but subguard false -> reduced accumulation (step-2) */
+      for (j = 0; j < _PB_NJ; j += 2) {
+        DATA_TYPE tmp = alpha * A[i][k] * B[k][j];
+        C[i][j] += tmp * 2.0;
+        if (j + 1 < _PB_NJ)
+          C[i][j + 1] += tmp * 2.0;  /* approximate using same tmp */
+      }
     }
-
-#ifdef ENABLE_OPENMP
-    /* If user enabled OpenMP, they can add a parallel region around outer loop.
-       Here we keep deterministic per-i RNG by seeding from i. */
-#endif
-
-    /* deterministic RNG seed per i (reproducible) */
-    uint32_t rng_state = (uint32_t)( (uint32_t)i * 2654435761u + 12345u );
-
-    /* main k loop */
-#ifdef ENABLE_BLOCKING
-    /* optional blocking (tunable). Not enabled by default. */
-    const int BK = 32; /* choose via macro if desired */
-    for (int kk = 0; kk < _PB_NK; kk += BK) {
-      int kmax = (kk + BK < _PB_NK) ? (kk + BK) : _PB_NK;
-      for (k = kk; k < kmax; ++k) {
+  } else {
+    /* condA false: another branch with similar pattern */
+    if (condC && (nj > NJ_TH)) {
+      /* alternate hot: full */
+      for (j = 0; j < _PB_NJ; j++)
+      C[i][j] += alpha * A[i][k] * B[k][j];
+    } else {
+      /* cold: lighter approximate - skip this k */
+      /* nothing */
+    }
+  }
 #else
-      for (k = 0; k < _PB_NK; ++k) {
+       for (j = 0; j < _PB_NJ; j++)
+      C[i][j] += alpha * A[i][k] * B[k][j];
 #endif
-      DATA_TYPE a_ik = a_row[k];
-      DATA_TYPE abs_aik = abs_dt(a_ik);
-      int a_hot = (abs_aik > (DATA_TYPE)EPS);
-      /* hoist alpha * a_ik (saves per-j multiply) */
-      DATA_TYPE alpha_aik = alpha * a_ik;
-
-      const DATA_TYPE * restrict b_row = B[k];
-
-      /* UNROLL-friendly inner loop: iterate in chunks of UNROLL_FACTOR when enabled */
-#ifdef ENABLE_UNROLL
-      int jh;
-      for (jh = 0; jh + UNROLL_FACTOR <= _PB_NJ; jh += UNROLL_FACTOR) {
-        /* small unrolled chunk */
-        #pragma GCC ivdep
-        for (int uj = 0; uj < UNROLL_FACTOR; ++uj) {
-          j = jh + uj;
-#ifdef ENABLE_SAMPLING
-          /* fast path: if a is hot and (optionally) Bhot indicates hot, do exact */
-          if (a_hot) {
-#ifdef ENABLE_BHOT_PRECOMPUTE
-            if (Bhot && Bhot[(size_t)k * (size_t)_PB_NJ + (size_t)j]) {
-              c_row[j] += alpha_aik * b_row[j];
-              continue;
-            }
-#else
-            DATA_TYPE bkj_tmp = b_row[j];
-            if (abs_dt(bkj_tmp) > (DATA_TYPE)EPS) {
-              c_row[j] += alpha_aik * bkj_tmp;
-              continue;
-            }
-#endif
-            /* else fall-through to sampling branch */
-          }
-          /* cold-case or sampling: draw RNG and maybe add scaled sample */
-          {
-            uint32_t r = xorshift32(&rng_state);
-#if SAMPLE_POW2
-            if ((r & SAMPLE_MASK) == 0) {
-              c_row[j] += alpha_aik * b_row[j] * (DATA_TYPE)SAMPLE_RATE;
-            }
-#else
-            if ((r % SAMPLE_RATE) == 0) {
-              c_row[j] += alpha_aik * b_row[j] * (DATA_TYPE)SAMPLE_RATE;
-            }
-#endif
-          }
-#else  /* not ENABLE_SAMPLING */
-          /* sampling disabled -> only update when both a and b are hot */
-#ifdef ENABLE_BHOT_PRECOMPUTE
-          if (a_hot && Bhot && Bhot[(size_t)k * (size_t)_PB_NJ + (size_t)j]) {
-            c_row[j] += alpha_aik * b_row[j];
-          }
-#else
-          DATA_TYPE bkj_tmp = b_row[j];
-          if (a_hot && (abs_dt(bkj_tmp) > (DATA_TYPE)EPS)) {
-            c_row[j] += alpha_aik * bkj_tmp;
-          }
-#endif
-#endif /* ENABLE_SAMPLING */
-        }
-      }
-      /* leftover j's */
-      for (j = ( ( _PB_NJ / UNROLL_FACTOR) * UNROLL_FACTOR ); j < _PB_NJ; ++j) {
-#ifdef ENABLE_SAMPLING
-        if (a_hot) {
-#ifdef ENABLE_BHOT_PRECOMPUTE
-          if (Bhot && Bhot[(size_t)k * (size_t)_PB_NJ + (size_t)j]) {
-            c_row[j] += alpha_aik * b_row[j];
-            continue;
-          }
-#else
-          DATA_TYPE bkj_tmp = b_row[j];
-          if (abs_dt(bkj_tmp) > (DATA_TYPE)EPS) {
-            c_row[j] += alpha_aik * bkj_tmp;
-            continue;
-          }
-#endif
-        }
-        {
-          uint32_t r = xorshift32(&rng_state);
-#if SAMPLE_POW2
-          if ((r & SAMPLE_MASK) == 0) {
-            c_row[j] += alpha_aik * b_row[j] * (DATA_TYPE)SAMPLE_RATE;
-          }
-#else
-          if ((r % SAMPLE_RATE) == 0) {
-            c_row[j] += alpha_aik * b_row[j] * (DATA_TYPE)SAMPLE_RATE;
-          }
-#endif
-        }
-#else /* not ENABLE_SAMPLING */
-#ifdef ENABLE_BHOT_PRECOMPUTE
-        if (a_hot && Bhot && Bhot[(size_t)k * (size_t)_PB_NJ + (size_t)j]) {
-          c_row[j] += alpha_aik * b_row[j];
-        }
-#else
-        DATA_TYPE bkj_tmp = b_row[j];
-        if (a_hot && (abs_dt(bkj_tmp) > (DATA_TYPE)EPS)) {
-          c_row[j] += alpha_aik * bkj_tmp;
-        }
-#endif
-#endif
-      }
-#else /* not ENABLE_UNROLL */
-      /* single j loop */
-      #pragma GCC ivdep
-      for (j = 0; j < _PB_NJ; ++j) {
-#ifdef ENABLE_SAMPLING
-        if (a_hot) {
-#ifdef ENABLE_BHOT_PRECOMPUTE
-          if (Bhot && Bhot[(size_t)k * (size_t)_PB_NJ + (size_t)j]) {
-            c_row[j] += alpha_aik * b_row[j];
-            continue;
-          }
-#else
-          DATA_TYPE bkj_tmp = b_row[j];
-          if (abs_dt(bkj_tmp) > (DATA_TYPE)EPS) {
-            c_row[j] += alpha_aik * bkj_tmp;
-            continue;
-          }
-#endif
-        }
-        {
-          uint32_t r = xorshift32(&rng_state);
-#if SAMPLE_POW2
-          if ((r & SAMPLE_MASK) == 0)
-            c_row[j] += alpha_aik * b_row[j] * (DATA_TYPE)SAMPLE_RATE;
-#else
-          if ((r % SAMPLE_RATE) == 0)
-            c_row[j] += alpha_aik * b_row[j] * (DATA_TYPE)SAMPLE_RATE;
-#endif
-        }
-#else /* not ENABLE_SAMPLING */
-#ifdef ENABLE_BHOT_PRECOMPUTE
-        if (a_hot && Bhot && Bhot[(size_t)k * (size_t)_PB_NJ + (size_t)j])
-          c_row[j] += alpha_aik * b_row[j];
-#else
-        DATA_TYPE bkj_tmp = b_row[j];
-        if (a_hot && (abs_dt(bkj_tmp) > (DATA_TYPE)EPS))
-          c_row[j] += alpha_aik * bkj_tmp;
-#endif
-#endif
-      }
-#endif /* ENABLE_UNROLL */
-
-    } /* end k */
-#ifdef ENABLE_BLOCKING
-    } /* end block k loop */
-#endif
-  } /* end i */
+    }
+  }
 #pragma endscop
 
-#ifdef ENABLE_BHOT_PRECOMPUTE
-  if (Bhot) free(Bhot);
-#endif
 }
 
 
@@ -348,4 +191,3 @@ int main(int argc, char** argv)
 
   return 0;
 }
-

@@ -86,71 +86,37 @@ void print_array(int nx,
 
 /* Main computational kernel. The whole function will be timed,
    including the call and return. */
-/* Modified kernel with Strategy B (Shannon-style path splitting + hot/cold) */
 static
 void kernel_fdtd_2d(int tmax,
-                    int nx,
-                    int ny,
-                    DATA_TYPE POLYBENCH_2D(ex,NX,NY,nx,ny),
-                    DATA_TYPE POLYBENCH_2D(ey,NX,NY,nx,ny),
-                    DATA_TYPE POLYBENCH_2D(hz,NX,NY,nx,ny),
-                    DATA_TYPE POLYBENCH_1D(_fict_,TMAX,tmax))
+		    int nx,
+		    int ny,
+		    DATA_TYPE POLYBENCH_2D(ex,NX,NY,nx,ny),
+		    DATA_TYPE POLYBENCH_2D(ey,NX,NY,nx,ny),
+		    DATA_TYPE POLYBENCH_2D(hz,NX,NY,nx,ny),
+		    DATA_TYPE POLYBENCH_1D(_fict_,TMAX,tmax))
 {
   int t, i, j;
 
 #pragma scop
 
-  for (t = 0; t < _PB_TMAX; t++) {
-
-    /* =============================
-       Cold Path: boundary condition
-       Apply sampling (only every 2nd step)
-       ============================= */
-    if ((t & 1) == 0) {   // Shannon-style split: only on even timesteps
-      for (j = 0; j < _PB_NY; j++) {
-        ey[0][j] = _fict_[t];
-      }
+  for(t = 0; t < _PB_TMAX; t++)
+    {
+      for (j = 0; j < _PB_NY; j++)
+	ey[0][j] = _fict_[t];
+      for (i = 1; i < _PB_NX; i++)
+	for (j = 0; j < _PB_NY; j++)
+	  ey[i][j] = ey[i][j] - SCALAR_VAL(0.5)*(hz[i][j]-hz[i-1][j]);
+      for (i = 0; i < _PB_NX; i++)
+	for (j = 1; j < _PB_NY; j++)
+	  ex[i][j] = ex[i][j] - SCALAR_VAL(0.5)*(hz[i][j]-hz[i][j-1]);
+      for (i = 0; i < _PB_NX - 1; i++)
+	for (j = 0; j < _PB_NY - 1; j++)
+	  hz[i][j] = hz[i][j] - SCALAR_VAL(0.7)*  (ex[i][j+1] - ex[i][j] +
+				       ey[i+1][j] - ey[i][j]);
     }
-
-    /* =============================
-       Hot Path: main field updates
-       (exact computation, no approximation)
-       ============================= */
-
-    /* ey update */
-    for (i = 1; i < _PB_NX; i++) {
-      /* 手工展开内层循环 (UNROLL 4) */
-      for (j = 0; j < _PB_NY-3; j+=4) {
-        ey[i][j]   -= SCALAR_VAL(0.5) * (hz[i][j]   - hz[i-1][j]);
-        ey[i][j+1] -= SCALAR_VAL(0.5) * (hz[i][j+1] - hz[i-1][j+1]);
-        ey[i][j+2] -= SCALAR_VAL(0.5) * (hz[i][j+2] - hz[i-1][j+2]);
-        ey[i][j+3] -= SCALAR_VAL(0.5) * (hz[i][j+3] - hz[i-1][j+3]);
-      }
-      for (; j < _PB_NY; j++) { // remainder
-        ey[i][j] -= SCALAR_VAL(0.5) * (hz[i][j] - hz[i-1][j]);
-      }
-    }
-
-    /* ex update */
-    for (i = 0; i < _PB_NX; i++) {
-      for (j = 1; j < _PB_NY; j++) {
-        ex[i][j] -= SCALAR_VAL(0.5) * (hz[i][j] - hz[i][j-1]);
-      }
-    }
-
-    /* hz update */
-    for (i = 0; i < _PB_NX-1; i++) {
-      for (j = 0; j < _PB_NY-1; j++) {
-        hz[i][j] -= SCALAR_VAL(0.7) * ( (ex[i][j+1] - ex[i][j]) +
-                                        (ey[i+1][j] - ey[i][j]) );
-      }
-    }
-
-  }
 
 #pragma endscop
 }
-
 
 
 int main(int argc, char** argv)

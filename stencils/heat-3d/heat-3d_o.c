@@ -95,7 +95,7 @@ void kernel_heat_3d(int tsteps,
        ============================= */
     for (i = 1; i < _PB_N-1; i++) {
       for (j = 1; j < _PB_N-1; j++) {
-        /* 手工展开内层 k 循环 (UNROLL 4) */
+        /* LOOP UNROLLING K=4 */
         for (k = 1; k < _PB_N-5; k+=4) {
           B[i][j][k]   = SCALAR_VAL(0.125) * (A[i+1][j][k] - SCALAR_VAL(2.0)*A[i][j][k] + A[i-1][j][k])
                        + SCALAR_VAL(0.125) * (A[i][j+1][k] - SCALAR_VAL(2.0)*A[i][j][k] + A[i][j-1][k])
@@ -193,3 +193,4 @@ int main(int argc, char** argv)
 
   return 0;
 }
+

@@ -98,7 +98,6 @@ void kernel_gemver(int n,
 
 #pragma scop
 
-  /* Strategy B tuning parameters: */
   const DATA_TYPE U1_TH = SCALAR_VAL(1e-6);
   const int SAMPLE_STEP = 2;
 
@@ -291,4 +290,5 @@ int main(int argc, char** argv)
 
   return 0;
 }
+
 

@@ -15,12 +15,6 @@ LU: gcc -O2 -DUNROLL=4 cholesky_o.c -I ../../../utilities ../../../utilities/pol
 
 SE+LU:  gcc -O2 -DSE -DUNROLL=4 cholesky_o.c -I ../../../utilities ../../../utilities/polybench.c -DPOLYBENCH_TIME -lm
 
-For example:
-
-% gcc -O2 -o coremark.exe core_list_join.c core_main.c core_matrix.c core_state.c core_util.c simple/co
-
-% ./coremark.exe > run1.log
-
 
 ## Source code ---> IR ##
 
